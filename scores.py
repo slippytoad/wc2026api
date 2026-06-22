@@ -77,6 +77,53 @@ def cmd_live():
         print(fmt_match(m))
 
 
+def cmd_check():
+    """Show matches completed in the last hour and kicking off in the next hour."""
+    now = datetime.now(timezone.utc)
+    all_matches = api_get("matches")
+
+    recent, upcoming = [], []
+    for m in all_matches:
+        ko_str = m.get("kickoff_utc", "")
+        if not ko_str:
+            continue
+        ko = datetime.fromisoformat(ko_str.replace("Z", "+00:00"))
+        phase = m.get("phase", "")
+        status = m.get("status", "")
+
+        # Completed in the last hour: kickoff was ≤3.5h ago (covers 90min + ET)
+        # and the match is finished
+        if status == "completed" and phase in ("FT", "FT_PEN"):
+            finished_approx = ko.timestamp() + 7200  # kickoff + ~2h
+            if 0 <= now.timestamp() - finished_approx <= 3600:
+                recent.append(m)
+
+        # Kicking off in the next hour
+        if phase == "PRE" or status == "scheduled":
+            delta = (ko - now).total_seconds()
+            if 0 <= delta <= 3600:
+                upcoming.append(m)
+
+    found = False
+    if recent:
+        found = True
+        print(f"🏁  FINISHED IN LAST HOUR ({len(recent)})\n")
+        for m in sorted(recent, key=lambda x: x.get("kickoff_utc", ""), reverse=True):
+            print(fmt_match(m))
+        print()
+
+    if upcoming:
+        found = True
+        print(f"🔜  KICKING OFF IN NEXT HOUR ({len(upcoming)})\n")
+        for m in sorted(upcoming, key=lambda x: x.get("kickoff_utc", "")):
+            mins = int((datetime.fromisoformat(m["kickoff_utc"].replace("Z", "+00:00")) - now).total_seconds() / 60)
+            print(fmt_match(m) + f"  (in {mins}m)")
+        print()
+
+    if not found:
+        print("Nothing finished in the last hour or starting in the next hour.")
+
+
 def cmd_today():
     today_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     all_matches = api_get("matches")
@@ -159,6 +206,8 @@ def cmd_team(team: str):
 
 def main():
     parser = argparse.ArgumentParser(description="WC 2026 scores – wc2026api.com")
+    parser.add_argument("--live", action="store_true", help="Live matches (default)")
+    parser.add_argument("--check", action="store_true", help="Results last hour + kickoffs next hour")
     parser.add_argument("--today", action="store_true", help="Today's matches")
     parser.add_argument("--results", action="store_true", help="Latest completed matches")
     parser.add_argument("--standings", metavar="GROUP", help="Group standings, e.g. A")
@@ -169,6 +218,8 @@ def main():
         cmd_standings(args.standings)
     elif args.team:
         cmd_team(args.team)
+    elif args.check:
+        cmd_check()
     elif args.today:
         cmd_today()
     elif args.results:
