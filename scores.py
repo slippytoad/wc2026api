@@ -82,7 +82,7 @@ def cmd_check():
     now = datetime.now(timezone.utc)
     all_matches = api_get("matches")
 
-    recent, upcoming = [], []
+    recent, live, upcoming = [], [], []
     for m in all_matches:
         ko_str = m.get("kickoff_utc", "")
         if not ko_str:
@@ -91,20 +91,30 @@ def cmd_check():
         phase = m.get("phase", "")
         status = m.get("status", "")
 
-        # Completed in the last hour: kickoff was ≤3.5h ago (covers 90min + ET)
-        # and the match is finished
-        if status == "completed" and phase in ("FT", "FT_PEN"):
-            finished_approx = ko.timestamp() + 7200  # kickoff + ~2h
+        # Currently in progress
+        if phase in LIVE_PHASES:
+            live.append(m)
+
+        # Completed in the last hour: estimate finish as kickoff + ~2h
+        elif status == "completed" and phase in ("FT", "FT_PEN"):
+            finished_approx = ko.timestamp() + 7200
             if 0 <= now.timestamp() - finished_approx <= 3600:
                 recent.append(m)
 
         # Kicking off in the next hour
-        if phase == "PRE" or status == "scheduled":
+        elif phase == "PRE" or status == "scheduled":
             delta = (ko - now).total_seconds()
             if 0 <= delta <= 3600:
                 upcoming.append(m)
 
     found = False
+    if live:
+        found = True
+        print(f"⚽  IN PROGRESS ({len(live)})\n")
+        for m in sorted(live, key=lambda x: x.get("kickoff_utc", "")):
+            print(fmt_match(m))
+        print()
+
     if recent:
         found = True
         print(f"🏁  FINISHED IN LAST HOUR ({len(recent)})\n")
@@ -121,7 +131,7 @@ def cmd_check():
         print()
 
     if not found:
-        print("Nothing finished in the last hour or starting in the next hour.")
+        print("Nothing live, finished in the last hour, or starting in the next hour.")
 
 
 def cmd_today():
