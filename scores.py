@@ -13,6 +13,7 @@ Usage:
 import os
 import sys
 import json
+import ssl
 import argparse
 from datetime import datetime, timezone
 import urllib.request
@@ -22,6 +23,14 @@ BASE = "https://api.wc2026api.com"
 
 LIVE_PHASES = {"1H", "HT", "2H", "ET1", "ET2", "PEN"}
 
+_CA_BUNDLE = os.environ.get("SSL_CERT_FILE") or os.environ.get("REQUESTS_CA_BUNDLE")
+_ssl_ctx = ssl.create_default_context(cafile=_CA_BUNDLE) if _CA_BUNDLE else ssl.create_default_context()
+_proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+_opener = urllib.request.build_opener(
+    urllib.request.ProxyHandler({"https": _proxy} if _proxy else {}),
+    urllib.request.HTTPSHandler(context=_ssl_ctx),
+)
+
 
 def api_get(path: str, params: dict = None) -> list | dict:
     key = os.environ.get("WC2026_API_KEY")
@@ -30,7 +39,7 @@ def api_get(path: str, params: dict = None) -> list | dict:
     qs = urllib.parse.urlencode(params or {})
     url = f"{BASE}/{path}{'?' + qs if qs else ''}"
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {key}"})
-    with urllib.request.urlopen(req, timeout=10) as resp:
+    with _opener.open(req, timeout=10) as resp:
         return json.loads(resp.read())
 
 
